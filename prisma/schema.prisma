@@ -1,0 +1,314 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+}
+
+enum RegistrationStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ContentType {
+  LESSON
+  VIDEO
+  NOTE
+  WORKSHEET
+  PROBLEM_SET
+}
+
+enum SubmissionStatus {
+  IN_PROGRESS
+  PENDING_GRADING
+  GRADED
+  RESUBMISSION_REQUIRED
+}
+
+enum CommentTarget {
+  CONTENT
+  ASSIGNMENT
+}
+
+enum NotificationType {
+  NEW_SUBMISSION
+  GRADED
+  RESUBMISSION_REQUESTED
+  COMMENT_REPLY
+  CONTENT_PUBLISHED
+  ASSIGNMENT_PUBLISHED
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  username        String   @unique
+  passwordHash    String
+  name            String
+  role            Role
+  studentIdNumber String?  @unique
+  grade           String?
+  createdAt       DateTime @default(now())
+
+  // Students only: the teacher who added/manages them.
+  managedById String?
+  managedBy   User?   @relation("TeacherStudents", fields: [managedById], references: [id])
+  students    User[]  @relation("TeacherStudents")
+
+  registrations         Registration[] @relation("StudentRegistrations")
+  assignedRegistrations Registration[] @relation("AssignedByTeacher")
+
+  taughtClasses         Class[]                @relation("TeacherClasses")
+  classEnrollments      ClassEnrollment[]      @relation("StudentEnrollments")
+  authoredContent       Content[]              @relation("AuthoredContent")
+  publishedContent      Content[]              @relation("PublishedContent")
+  authoredAssignments   Assignment[]           @relation("AuthoredAssignments")
+  publishedAssignments  Assignment[]           @relation("PublishedAssignments")
+  assignmentSubmissions AssignmentSubmission[] @relation("StudentSubmissions")
+  gradedSubmissions     AssignmentSubmission[] @relation("GradedSubmissions")
+  comments              Comment[]
+  notifications         Notification[]
+}
+
+model Competition {
+  id              String @id @default(cuid())
+  slug            String @unique
+  name            String
+  subject         String
+  topic           String @default("ALGEBRA")
+  summary         String
+  durationMinutes Int
+
+  questions     Question[]
+  registrations Registration[]
+}
+
+model Question {
+  id            String @id @default(cuid())
+  competitionId String
+  order         Int
+  text          String
+  choices       String // JSON-encoded string[]
+  correctIndex  Int
+  points        Int    @default(1)
+
+  competition Competition @relation(fields: [competitionId], references: [id])
+  answers     Answer[]
+}
+
+model Registration {
+  id            String             @id @default(cuid())
+  studentId     String
+  competitionId String
+  assignedById  String
+  status        RegistrationStatus @default(ASSIGNED)
+  createdAt     DateTime           @default(now())
+
+  student     User         @relation("StudentRegistrations", fields: [studentId], references: [id])
+  competition Competition  @relation(fields: [competitionId], references: [id])
+  assignedBy  User         @relation("AssignedByTeacher", fields: [assignedById], references: [id])
+  attempt     ExamAttempt?
+
+  @@unique([studentId, competitionId])
+}
+
+model ExamAttempt {
+  id             String        @id @default(cuid())
+  registrationId String        @unique
+  startedAt      DateTime      @default(now())
+  submittedAt    DateTime?
+  status         AttemptStatus @default(IN_PROGRESS)
+  score          Int?
+  totalPoints    Int?
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+  answers      Answer[]
+}
+
+model Answer {
+  id            String   @id @default(cuid())
+  attemptId     String
+  questionId    String
+  selectedIndex Int?
+  isCorrect     Boolean?
+
+  attempt  ExamAttempt @relation(fields: [attemptId], references: [id])
+  question Question    @relation(fields: [questionId], references: [id])
+
+  @@unique([attemptId, questionId])
+}
+
+model Class {
+  id        String   @id @default(cuid())
+  name      String
+  subject   String
+  teacherId String
+  createdAt DateTime @default(now())
+
+  teacher     User              @relation("TeacherClasses", fields: [teacherId], references: [id])
+  enrollments ClassEnrollment[]
+  content     Content[]
+  assignments Assignment[]
+}
+
+model ClassEnrollment {
+  id         String   @id @default(cuid())
+  classId    String
+  studentId  String
+  enrolledAt DateTime @default(now())
+
+  class   Class @relation(fields: [classId], references: [id])
+  student User  @relation("StudentEnrollments", fields: [studentId], references: [id])
+
+  @@unique([classId, studentId])
+}
+
+model Content {
+  id            String        @id @default(cuid())
+  classId       String
+  authorId      String
+  type          ContentType
+  title         String
+  body          String
+  attachmentUrl String?
+  status        ContentStatus @default(DRAFT)
+  publishedAt   DateTime?
+  publishedById String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  class       Class @relation(fields: [classId], references: [id])
+  author      User  @relation("AuthoredContent", fields: [authorId], references: [id])
+  publishedBy User? @relation("PublishedContent", fields: [publishedById], references: [id])
+
+  @@index([classId, status])
+}
+
+model Assignment {
+  id            String        @id @default(cuid())
+  classId       String
+  authorId      String
+  title         String
+  instructions  String
+  attachmentUrl String?
+  dueAt         DateTime?
+  status        ContentStatus @default(DRAFT)
+  publishedAt   DateTime?
+  publishedById String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  class       Class                  @relation(fields: [classId], references: [id])
+  author      User                   @relation("AuthoredAssignments", fields: [authorId], references: [id])
+  publishedBy User?                  @relation("PublishedAssignments", fields: [publishedById], references: [id])
+  questions   AssignmentQuestion[]
+  submissions AssignmentSubmission[]
+
+  @@index([classId, status])
+}
+
+model AssignmentQuestion {
+  id           String @id @default(cuid())
+  assignmentId String
+  order        Int
+  text         String
+  points       Int    @default(1)
+
+  assignment Assignment         @relation(fields: [assignmentId], references: [id])
+  answers    AssignmentAnswer[]
+}
+
+model AssignmentSubmission {
+  id                 String           @id @default(cuid())
+  assignmentId       String
+  studentId          String
+  attemptNumber      Int
+  status             SubmissionStatus @default(IN_PROGRESS)
+  submittedAt        DateTime?
+  score              Int?
+  maxScore           Int?
+  feedback           String?
+  resubmissionReason String?
+  gradedAt           DateTime?
+  gradedById         String?
+  createdAt          DateTime         @default(now())
+
+  assignment Assignment         @relation(fields: [assignmentId], references: [id])
+  student    User               @relation("StudentSubmissions", fields: [studentId], references: [id])
+  gradedBy   User?              @relation("GradedSubmissions", fields: [gradedById], references: [id])
+  answers    AssignmentAnswer[]
+  files      SubmissionFile[]
+
+  @@unique([assignmentId, studentId, attemptNumber])
+}
+
+model AssignmentAnswer {
+  id           String  @id @default(cuid())
+  submissionId String
+  questionId   String
+  answerText   String?
+
+  submission AssignmentSubmission @relation(fields: [submissionId], references: [id])
+  question   AssignmentQuestion   @relation(fields: [questionId], references: [id])
+
+  @@unique([submissionId, questionId])
+}
+
+model SubmissionFile {
+  id           String   @id @default(cuid())
+  submissionId String
+  fileName     String
+  url          String
+  uploadedAt   DateTime @default(now())
+
+  submission AssignmentSubmission @relation(fields: [submissionId], references: [id])
+}
+
+model Comment {
+  id         String        @id @default(cuid())
+  targetType CommentTarget
+  targetId   String
+  authorId   String
+  body       String
+  parentId   String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  deletedAt  DateTime?
+
+  author  User      @relation(fields: [authorId], references: [id])
+  parent  Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies Comment[] @relation("CommentReplies")
+
+  @@index([targetType, targetId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  message   String
+  link      String?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
