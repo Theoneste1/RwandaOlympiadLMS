@@ -33,7 +33,9 @@ export default async function ResultPage({
 
   const { registration } = attempt;
   const isOwner = session.role === "STUDENT" && registration.studentId === session.userId;
-  const isManagingTeacher = session.role === "TEACHER" && registration.student.managedById === session.userId;
+  const isManagingTeacher =
+    session.role === "TEACHER" &&
+    (registration.student.managedById === session.userId || registration.assignedById === session.userId);
   if (!isOwner && !isManagingTeacher) notFound();
 
   const answersByQuestion = new Map(attempt.answers.map((a) => [a.questionId, a]));
